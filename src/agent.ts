@@ -6,6 +6,7 @@ import { AdaptivePlanner } from './planning';
 import { PerceptionLayer } from './perception';
 import { CollaborationProtocol } from './collaboration';
 import { createLogger, getLogger, logError } from './logger';
+import { TokenCounter, RateLimiter, CircuitBreaker, Tracer, MetricsCollector } from './utils';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 
@@ -31,6 +32,13 @@ export class Agent {
   private logger = getLogger();
   private isInitialized = false;
 
+  // Production utilities
+  private tokenCounter: TokenCounter;
+  private rateLimiter: RateLimiter;
+  private circuitBreaker: CircuitBreaker;
+  private tracer: Tracer;
+  private metrics: MetricsCollector;
+
   constructor(options: AgentOptions) {
     this.config = options.config;
     this.sessionId = this.generateSessionId();
@@ -39,6 +47,7 @@ export class Agent {
       createLogger(this.config.logging);
     }
 
+    // Initialize components
     this.memory = new MemorySystem(this.config.memory);
     this.reflection = new ReflectionEngine(this.config.reflection);
     this.toolCreator = new ToolCreator(this.config.tools);
@@ -48,6 +57,21 @@ export class Agent {
     if (this.config.collaboration) {
       this.collaboration = new CollaborationProtocol(this.config.collaboration);
     }
+
+    // Initialize production utilities
+    this.tokenCounter = new TokenCounter(128000);
+    this.rateLimiter = new RateLimiter({
+      maxRequests: 60,
+      windowMs: 60000,
+      maxRetries: 3,
+      retryDelayMs: 1000,
+    });
+    this.circuitBreaker = new CircuitBreaker({
+      failureThreshold: 5,
+      recoveryTimeoutMs: 30000,
+    });
+    this.tracer = new Tracer();
+    this.metrics = new MetricsCollector();
 
     this.setupLLMProvider(options);
   }
@@ -71,16 +95,54 @@ export class Agent {
   private createOpenAIProvider(): LLMProvider {
     return {
       chat: async (messages: Array<{ role: string; content: string }>) => {
-        const model = this.config.reflection.llmModel || this.config.planning.llmModel || 'gpt-4o-mini';
+        return this.circuitBreaker.execute(async () => {
+          return this.rateLimiter.execute('openai_chat', async () => {
+            const spanId = this.tracer.startSpan('openai_chat', {
+              model: this.config.reflection.llmModel || 'gpt-4o-mini',
+              messageCount: messages.length,
+            });
 
-        const response = await this.openai!.chat.completions.create({
-          model,
-          messages: messages as Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
-          temperature: 0.7,
-          max_tokens: 4096,
+            try {
+              // Token counting
+              const tokenCount = this.tokenCounter.countMessages(messages);
+              this.tokenCounter.trackMessages('openai_chat', messages);
+
+              // Truncate if needed
+              const truncatedMessages = this.tokenCounter.truncateMessages(messages, 120000);
+
+              const model = this.config.reflection.llmModel || this.config.planning.llmModel || 'gpt-4o-mini';
+              const startTime = Date.now();
+
+              const response = await this.openai!.chat.completions.create({
+                model,
+                messages: truncatedMessages as Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+                temperature: 0.7,
+                max_tokens: 4096,
+              });
+
+              const latency = Date.now() - startTime;
+              this.metrics.recordLatency(latency);
+
+              // Track token usage
+              if (response.usage) {
+                this.metrics.recordTokenUsage(
+                  response.usage.prompt_tokens,
+                  response.usage.completion_tokens
+                );
+              }
+
+              this.tracer.setAttribute(spanId, 'latency', latency);
+              this.tracer.setAttribute(spanId, 'tokens', tokenCount.tokens);
+              this.tracer.endSpan(spanId);
+
+              return response.choices[0]?.message?.content || '';
+            } catch (error) {
+              this.metrics.recordError();
+              this.tracer.endSpan(spanId, 'error');
+              throw error;
+            }
+          });
         });
-
-        return response.choices[0]?.message?.content || '';
       },
     };
   }
@@ -88,23 +150,57 @@ export class Agent {
   private createAnthropicProvider(): LLMProvider {
     return {
       chat: async (messages: Array<{ role: string; content: string }>) => {
-        const model = this.config.reflection.llmModel || this.config.planning.llmModel || 'claude-3-haiku-20240307';
+        return this.circuitBreaker.execute(async () => {
+          return this.rateLimiter.execute('anthropic_chat', async () => {
+            const spanId = this.tracer.startSpan('anthropic_chat', {
+              model: this.config.reflection.llmModel || 'claude-3-haiku-20240307',
+              messageCount: messages.length,
+            });
 
-        const systemMessage = messages.find(m => m.role === 'system');
-        const userMessages = messages.filter(m => m.role !== 'system');
+            try {
+              const tokenCount = this.tokenCounter.countMessages(messages);
+              this.tokenCounter.trackMessages('anthropic_chat', messages);
 
-        const response = await this.anthropic!.messages.create({
-          model,
-          max_tokens: 4096,
-          system: systemMessage?.content,
-          messages: userMessages as Array<{ role: 'user' | 'assistant'; content: string }>,
+              const truncatedMessages = this.tokenCounter.truncateMessages(messages, 120000);
+
+              const model = this.config.reflection.llmModel || this.config.planning.llmModel || 'claude-3-haiku-20240307';
+              const systemMessage = truncatedMessages.find(m => m.role === 'system');
+              const userMessages = truncatedMessages.filter(m => m.role !== 'system');
+              const startTime = Date.now();
+
+              const response = await this.anthropic!.messages.create({
+                model,
+                max_tokens: 4096,
+                system: systemMessage?.content,
+                messages: userMessages as Array<{ role: 'user' | 'assistant'; content: string }>,
+              });
+
+              const latency = Date.now() - startTime;
+              this.metrics.recordLatency(latency);
+
+              if (response.usage) {
+                this.metrics.recordTokenUsage(
+                  response.usage.input_tokens,
+                  response.usage.output_tokens
+                );
+              }
+
+              this.tracer.setAttribute(spanId, 'latency', latency);
+              this.tracer.setAttribute(spanId, 'tokens', tokenCount.tokens);
+              this.tracer.endSpan(spanId);
+
+              const content = response.content[0];
+              if (content.type === 'text') {
+                return content.text;
+              }
+              return '';
+            } catch (error) {
+              this.metrics.recordError();
+              this.tracer.endSpan(spanId, 'error');
+              throw error;
+            }
+          });
         });
-
-        const content = response.content[0];
-        if (content.type === 'text') {
-          return content.text;
-        }
-        return '';
       },
     };
   }
@@ -130,6 +226,7 @@ export class Agent {
       this.logger.info({
         sessionId: this.sessionId,
         hasLLM: !!this.llmProvider,
+        production: true,
       }, 'Agent initialized');
     } catch (error) {
       logError(error as Error, { component: 'Agent', action: 'initialize' });
@@ -142,6 +239,8 @@ export class Agent {
       throw new Error('Agent not initialized. Call initialize() first.');
     }
 
+    const spanId = this.tracer.startSpan('agent_run');
+
     try {
       const perceptionOutput = await this.perceive(input);
       const memoryContext = await this.retrieveMemory(perceptionOutput);
@@ -149,9 +248,43 @@ export class Agent {
       const result = await this.executeWithReflection(plan);
       await this.storeMemory(perceptionOutput, result);
 
+      this.tracer.endSpan(spanId);
       return result;
     } catch (error) {
+      this.metrics.recordError();
+      this.tracer.endSpan(spanId, 'error');
       logError(error as Error, { component: 'Agent', action: 'run' });
+      throw error;
+    }
+  }
+
+  async *runStream(input: string | PerceptionInput): AsyncGenerator<string> {
+    if (!this.isInitialized) {
+      throw new Error('Agent not initialized. Call initialize() first.');
+    }
+
+    const spanId = this.tracer.startSpan('agent_run_stream');
+
+    try {
+      const perceptionOutput = await this.perceive(input);
+      const memoryContext = await this.retrieveMemory(perceptionOutput);
+      const plan = await this.createPlan(perceptionOutput, memoryContext);
+
+      // Execute and stream results
+      const result = await this.planner.execute(plan);
+      
+      // Simulate streaming by yielding chunks
+      const chunkSize = 50;
+      for (let i = 0; i < result.length; i += chunkSize) {
+        yield result.substring(i, i + chunkSize);
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+
+      await this.storeMemory(perceptionOutput, result);
+      this.tracer.endSpan(spanId);
+    } catch (error) {
+      this.metrics.recordError();
+      this.tracer.endSpan(spanId, 'error');
       throw error;
     }
   }
@@ -232,6 +365,7 @@ export class Agent {
     return `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   }
 
+  // Public methods
   async addTool(tool: any): Promise<void> {
     await this.toolCreator.register(tool);
   }
@@ -264,6 +398,32 @@ export class Agent {
     return this.planner.getAllPlans();
   }
 
+  // Production utilities
+  getTokenBudget() {
+    return this.tokenCounter.getBudget();
+  }
+
+  getMetrics() {
+    return this.metrics.getMetrics();
+  }
+
+  getTraces() {
+    return this.tracer.getCompletedSpans();
+  }
+
+  getCircuitBreakerState() {
+    return this.circuitBreaker.getStats();
+  }
+
+  getRateLimiterState() {
+    return this.rateLimiter.getState();
+  }
+
+  resetMetrics(): void {
+    this.metrics.reset();
+    this.tracer.getCompletedSpans().length = 0;
+  }
+
   async disconnect(): Promise<void> {
     if (this.collaboration) {
       await this.collaboration.disconnect();
@@ -276,12 +436,18 @@ export class Agent {
     memory: any;
     tools: any;
     plans: any;
+    tokens: any;
+    metrics: any;
+    circuitBreaker: any;
   }> {
     return {
       sessionId: this.sessionId,
       memory: await this.memory.getStats(),
       tools: await this.toolCreator.getToolStats(),
       plans: await this.planner.getStats(),
+      tokens: this.tokenCounter.getBudget(),
+      metrics: this.metrics.getMetrics(),
+      circuitBreaker: this.circuitBreaker.getStats(),
     };
   }
 }

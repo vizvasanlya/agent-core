@@ -26,3 +26,27 @@ export * from './types';
 
 // Logger
 export { createLogger, getLogger, setLogLevel, logError, logInfo, logDebug, logWarn } from './logger';
+
+// Utilities
+export {
+  TokenCounter,
+  TokenBudget,
+  TokenCountResult,
+  RateLimiter,
+  RateLimitConfig,
+  RateLimitState,
+  CircuitBreaker,
+  CircuitBreakerConfig,
+  CircuitState,
+  StreamHandler,
+  StreamCollector,
+  StreamChunk,
+  StreamOptions,
+  Sandbox,
+  SandboxConfig,
+  SandboxResult,
+  Tracer,
+  MetricsCollector,
+  TraceSpan,
+  Metrics,
+} from './utils';
