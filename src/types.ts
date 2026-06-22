@@ -7,6 +7,12 @@ export interface AgentConfig {
   tools: ToolsConfig;
   perception: PerceptionConfig;
   collaboration?: CollaborationConfig;
+  logging?: LoggingConfig;
+}
+
+export interface LoggingConfig {
+  level: 'debug' | 'info' | 'warn' | 'error';
+  file?: string;
 }
 
 export interface MemoryConfig {
@@ -15,12 +21,19 @@ export interface MemoryConfig {
   persistence: boolean;
   maxTokens: number;
   vectorStore?: string;
+  chromaUrl?: string;
+  pineconeApiKey?: string;
+  pineconeEnvironment?: string;
+  openaiApiKey?: string;
 }
 
 export interface ReflectionConfig {
   enabled: boolean;
   critiqueDepth: 'shallow' | 'medium' | 'deep';
   learningRate: number;
+  maxIterations?: number;
+  llmProvider?: 'openai' | 'anthropic';
+  llmModel?: string;
 }
 
 export interface PlanningConfig {
@@ -28,22 +41,67 @@ export interface PlanningConfig {
   maxRetries: number;
   timeout: number;
   fallbackStrategies?: boolean;
+  maxSteps?: number;
+  llmProvider?: 'openai' | 'anthropic';
+  llmModel?: string;
 }
 
 export interface ToolsConfig {
   dynamic: boolean;
   composition: boolean;
   learning: boolean;
+  sandbox?: boolean;
+  maxExecutionTime?: number;
 }
 
 export interface PerceptionConfig {
   modalities: ('text' | 'image' | 'audio' | 'code')[];
   uncertainty: boolean;
+  visionModel?: string;
+  audioModel?: string;
 }
 
 export interface CollaborationConfig {
   discovery: 'mdns' | 'manual';
   synchronization: 'realtime' | 'batch';
+  port?: number;
+  maxConnections?: number;
+}
+
+// Perception Types
+export interface PerceptionInput {
+  text?: string;
+  image?: string;
+  audio?: string;
+  code?: string;
+}
+
+export interface PerceptionOutput {
+  text?: string;
+  imageAnalysis?: ImageAnalysis;
+  audioAnalysis?: AudioAnalysis;
+  codeAnalysis?: CodeAnalysis;
+  uncertainty?: number;
+}
+
+export interface ImageAnalysis {
+  objects: string[];
+  scene: string;
+  confidence: number;
+}
+
+export interface AudioAnalysis {
+  transcript: string;
+  language: string;
+  sentiment: string;
+}
+
+export interface CodeAnalysis {
+  language: string;
+  complexity: number;
+  issues: string[];
+  functions?: string[];
+  classes?: string[];
 }
 
 // Memory Types
@@ -106,40 +164,6 @@ export interface ToolParameter {
   description: string;
   required: boolean;
   default?: any;
-}
-
-// Perception Types
-export interface PerceptionInput {
-  text?: string;
-  image?: string;
-  audio?: string;
-  code?: string;
-}
-
-export interface PerceptionOutput {
-  text?: string;
-  imageAnalysis?: ImageAnalysis;
-  audioAnalysis?: AudioAnalysis;
-  codeAnalysis?: CodeAnalysis;
-  uncertainty?: number;
-}
-
-export interface ImageAnalysis {
-  objects: string[];
-  scene: string;
-  confidence: number;
-}
-
-export interface AudioAnalysis {
-  transcript: string;
-  language: string;
-  sentiment: string;
-}
-
-export interface CodeAnalysis {
-  language: string;
-  complexity: number;
-  issues: string[];
 }
 
 // Collaboration Types

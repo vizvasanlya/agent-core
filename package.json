@@ -1,7 +1,7 @@
 {
-  "name": "agent-core",
+  "name": "@agent-core/framework",
   "version": "1.0.0",
-  "description": "Open-source AI agent framework with persistent memory, self-reflection, and adaptive planning",
+  "description": "Production-ready AI agent framework with persistent memory, self-reflection, and adaptive planning",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -9,42 +9,65 @@
     "build:watch": "tsc --watch",
     "dev": "ts-node src/index.ts",
     "test": "jest",
+    "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "lint": "eslint src --ext .ts",
-    "format": "prettier --write 'src/**/*.ts'"
+    "lint:fix": "eslint src --ext .ts --fix",
+    "format": "prettier --write 'src/**/*.ts'",
+    "format:check": "prettier --check 'src/**/*.ts'",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "prepare": "husky install"
   },
   "keywords": [
     "ai",
     "agent",
+    "llm",
     "memory",
     "reflection",
     "planning",
-    "llm",
     "openai",
-    "anthropic"
+    "anthropic",
+    "chromadb",
+    "typescript"
   ],
-  "author": "Your Name",
+  "author": "Agent Core Contributors",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/agent-core.git"
+  },
+  "homepage": "https://github.com/yourusername/agent-core#readme",
+  "bugs": {
+    "url": "https://github.com/yourusername/agent-core/issues"
+  },
   "dependencies": {
-    "openai": "^4.28.0",
-    "@anthropic-ai/sdk": "^0.16.0",
-    "chromadb": "^1.7.0",
-    "langchain": "^0.1.0",
-    "zod": "^3.22.0",
-    "uuid": "^9.0.0"
+    "openai": "^4.73.0",
+    "@anthropic-ai/sdk": "^0.39.0",
+    "chromadb": "^1.9.2",
+    "zod": "^3.24.0",
+    "uuid": "^10.0.0",
+    "pino": "^9.4.0",
+    "pino-pretty": "^11.2.0",
+    "dotenv": "^16.4.0",
+    "retry": "^0.13.1",
+    "p-queue": "^8.0.0",
+    "p-retry": "^6.2.0"
   },
   "devDependencies": {
-    "@types/node": "^20.11.0",
-    "@types/uuid": "^9.0.7",
-    "typescript": "^5.3.0",
+    "@types/node": "^22.0.0",
+    "@types/uuid": "^10.0.0",
+    "typescript": "^5.6.0",
     "ts-node": "^10.9.0",
     "jest": "^29.7.0",
     "@types/jest": "^29.5.0",
-    "ts-jest": "^29.1.0",
-    "eslint": "^8.56.0",
-    "@typescript-eslint/eslint-plugin": "^6.19.0",
-    "@typescript-eslint/parser": "^6.19.0",
-    "prettier": "^3.2.0"
+    "ts-jest": "^29.2.0",
+    "eslint": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "prettier": "^3.4.0",
+    "husky": "^9.1.0",
+    "lint-staged": "^15.2.0"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -53,5 +76,11 @@
     "dist/**/*",
     "README.md",
     "LICENSE"
-  ]
+  ],
+  "lint-staged": {
+    "*.{ts,js}": [
+      "eslint --fix",
+      "prettier --write"
+    ]
+  }
 }
