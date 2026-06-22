@@ -1,5 +1,5 @@
 {
-  "name": "@agent-core/framework",
+  "name": "agent-core-framework",
   "version": "1.0.0",
   "description": "Production-ready AI agent framework with persistent memory, self-reflection, and adaptive planning",
   "main": "dist/index.js",
